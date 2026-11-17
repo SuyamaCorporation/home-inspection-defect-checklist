@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>住宅インスペクション欠陥チェックリスト</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .fade-in { animation: fadeIn 0.15s ease-in; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(-3px); } to { opacity:1; transform:translateY(0); } }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen font-sans">
+
+<header class="bg-slate-800 text-white py-4 px-6 shadow-md">
+  <h1 class="text-xl font-bold">🏠 住宅インスペクション欠陥チェックリスト</h1>
+  <p class="text-slate-300 text-sm mt-1">中古住宅購入時の目視点検チェックリスト</p>
+</header>
+
+<main class="max-w-3xl mx-auto px-4 py-6 space-y-6">
+
+  <!-- 物件情報 -->
+  <section class="bg-white rounded-xl shadow p-5" aria-label="物件情報">
+    <h2 class="text-base font-bold text-slate-700 mb-3 border-b border-slate-200 pb-2">物件情報</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label for="propertyAddr" class="block text-xs font-medium text-gray-600 mb-1">物件住所</label>
+        <input id="propertyAddr" type="text" placeholder="例: 東京都渋谷区..." class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" aria-label="物件住所" />
+      </div>
+      <div>
+        <label for="inspectionDate" class="block text-xs font-medium text-gray-600 mb-1">点検日</label>
+        <input id="inspectionDate" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" aria-label="点検日" />
+      </div>
+    </div>
+  </section>
+
+  <!-- チェックリストセクション -->
+  <div id="sectionsContainer" class="space-y-4"></div>
+
+  <!-- サマリー -->
+  <section class="bg-white rounded-xl shadow p-5" aria-label="集計サマリー">
+    <h2 class="text-base font-bold text-slate-700 mb-4 border-b border-slate-200 pb-2">📊 集計サマリー</h2>
+    <div id="summaryContent" class="space-y-3"></div>
+  </section>
+
+  <div class="flex gap-3">
+    <button id="clearBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium px-5 py-2 rounded-lg text-sm transition" aria-label="チェックリストをリセット">リセット</button>
+  </div>
+
+</main>
+
+<script>
+const STORAGE_KEY = 'home_inspection_v1';
+
+const SECTIONS = [
+  {
+    id: 'gaiheki', label: '外壁・外構', icon: '🧱',
+    items: [
+      'ひび割れ（クラック）の有無',
+      '塗装の剥がれ・チョーキング',
+      'コーキングの劣化・割れ',
+      '雨だれ跡・苔・カビ',
+      '基礎との取り合い部分の隙間'
+    ]
+  },
+  {
+    id: 'yane', label: '屋根・小屋裏', icon: '🏗️',
+    items: [
+      '屋根材のひび・ズレ・欠損',
+      '棟板金の浮き・錆び',
+      '雨樋の詰まり・割れ・外れ',
+      '小屋裏の雨漏り跡・シミ',
+      '断熱材の状態・結露跡'
+    ]
+  },
+  {
+    id: 'kiso', label: '基礎・床下', icon: '⬜',
+    items: [
+      '基礎のひび割れ（特に斜め・横方向）',
+      '基礎の欠損・鉄筋の露出',
+      '床下の水濡れ・湿気',
+      'シロアリ被害・食害跡',
+      '配管の腐食・漏水跡'
+    ]
+  },
+  {
+    id: 'mizu', label: '水回り（浴室/台所/トイレ）', icon: '🚿',
+    items: [
+      '浴室の防水・タイル目地のカビ・割れ',
+      '台所シンク下の水漏れ・腐食',
+      'トイレの水漏れ・止水栓の状態',
+      '洗面台・床材の腐食・浮き',
+      '排水の詰まり・臭気'
+    ]
+  },
+  {
+    id: 'denki', label: '電気・ガス', icon: '⚡',
+    items: [
+      '分電盤の状態・ブレーカー種類',
+      'コンセント・スイッチの不具合',
+      '照明器具の動作確認',
+      'ガス配管の腐食・接続状態',
+      '換気扇・給気口の動作'
+    ]
+  }
+];
+
+const SEVERITY_COST = {
+  '軽微': 50000,
+  '中程度': 300000,
+  '重大': 1000000
+};
+
+let state = {};
+
+function defaultState() {
+  const s = { propertyAddr: '', inspectionDate: '' };
+  SECTIONS.forEach(sec => {
+    s[sec.id] = sec.items.map(() => ({ status: '○', note: '', severity: '' }));
+  });
+  return s;
+}
+
+function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (d) state = d; else state = defaultState();
+  } catch(e) { state = defaultState(); }
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function statusColor(status) {
+  if (status === '○') return 'bg-green-100 text-green-700 border-green-300';
+  if (status === '△') return 'bg-yellow-100 text-yellow-700 border-yellow-300';
+  if (status === '×') return 'bg-red-100 text-red-700 border-red-300';
+  return '';
+}
+
+function renderSections() {
+  const container = document.getElementById('sectionsContainer');
+  container.innerHTML = '';
+
+  SECTIONS.forEach(sec => {
+    const secData = state[sec.id] || [];
+    const div = document.createElement('section');
+    div.className = 'bg-white rounded-xl shadow p-5 fade-in';
+    div.setAttribute('aria-label', sec.label);
+
+    div.innerHTML = `<h2 class="text-base font-bold text-slate-700 mb-3 border-b border-slate-200 pb-2">${escHtml(sec.icon)} ${escHtml(sec.label)}</h2>
+      <div class="space-y-3">${sec.items.map((item, idx) => {
+        const d = secData[idx] || { status: '○', note: '', severity: '' };
+        const isDefect = d.status === '△' || d.status === '×';
+        return `
+        <div class="border border-gray-100 rounded-lg p-3 hover:bg-gray-50 transition" data-sec="${sec.id /* xss-ok: SECTIONSハードコード配列のid */}" data-idx="${idx /* xss-ok: 整数ループカウンタ */}">
+          <div class="flex flex-wrap items-center gap-2 mb-2">
+            <span class="text-sm font-medium text-gray-800 flex-1">${escHtml(item)}</span>
+            <div class="flex gap-1" role="group" aria-label="${escHtml(item)}の状態">
+              ${['○','△','×'].map(st => `
+                <button class="status-btn px-3 py-1 text-xs font-bold rounded-full border transition ${d.status === st ? statusColor(st) /* xss-ok: stはハードコード列挙値、statusColor()は内部マッピング関数 */ : 'bg-gray-100 text-gray-500 border-gray-200 hover:border-gray-400'}" aria-label="${st === '○' ? '良好' : st === '△' ? '要注意' : '要修繕'}" aria-pressed="${d.status === st /* xss-ok: boolean比較式 */}" data-sec="${sec.id /* xss-ok: SECTIONSハードコード配列のid */}" data-idx="${idx /* xss-ok: 整数ループカウンタ */}" data-st="${st /* xss-ok: ハードコード列挙値 ○△× */}">${st === '○' ? '○ 良好' : st === '△' ? '△ 要注意' : '× 要修繕'}</button>
+              `).join('')}
+            </div>
+          </div>
+          <input type="text" value="${escHtml(d.note)}" placeholder="メモ（詳細・場所など）" class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400" aria-label="${escHtml(item)}のメモ" data-note="${sec.id /* xss-ok: SECTIONSハードコード配列のid */}:${idx /* xss-ok: 整数ループカウンタ */}" />
+          ${isDefect ? `
+          <div class="mt-2 flex items-center gap-2">
+            <span class="text-xs text-gray-500">重度:</span>
+            <div class="flex gap-1" role="group" aria-label="${escHtml(item)}の欠陥重度">
+              ${['軽微','中程度','重大'].map(sv => `
+                <button class="sev-btn text-xs px-2 py-1 rounded border transition ${d.severity === sv ? (sv==='軽微'?'bg-blue-100 text-blue-700 border-blue-400':sv==='中程度'?'bg-orange-100 text-orange-700 border-orange-400':'bg-red-200 text-red-800 border-red-500') : 'bg-gray-100 text-gray-500 border-gray-200 hover:border-gray-400'}" aria-label="重度: ${sv /* xss-ok: ハードコード列挙値 軽微/中程度/重大 */}" aria-pressed="${d.severity === sv /* xss-ok: boolean比較式 */}" data-sec="${sec.id /* xss-ok: SECTIONSハードコード配列のid */}" data-idx="${idx /* xss-ok: 整数ループカウンタ */}" data-sv="${sv /* xss-ok: ハードコード列挙値 */}">${sv}</button>
+              `).join('')}
+            </div>
+          </div>` : ''}
+        </div>`;
+      }).join('')}</div>`;
+
+    container.appendChild(div);
+  });
+
+  // Status buttons
+  container.querySelectorAll('.status-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const { sec, idx, st } = btn.dataset;
+      state[sec][idx].status = st;
+      if (st === '○') state[sec][idx].severity = '';
+      save(); renderSections(); renderSummary();
+    });
+  });
+
+  // Note inputs
+  container.querySelectorAll('input[data-note]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const [sec, idx] = inp.dataset.note.split(':');
+      state[sec][idx].note = inp.value;
+      save();
+    });
+  });
+
+  // Severity buttons
+  container.querySelectorAll('.sev-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const { sec, idx, sv } = btn.dataset;
+      state[sec][idx].severity = sv;
+      save(); renderSections(); renderSummary();
+    });
+  });
+}
+
+function renderSummary() {
+  const el = document.getElementById('summaryContent');
+  let counts = { '○': 0, '△': 0, '×': 0 };
+  let sevCounts = { '軽微': 0, '中程度': 0, '重大': 0 };
+  let totalCost = 0;
+
+  SECTIONS.forEach(sec => {
+    (state[sec.id] || []).forEach(item => {
+      counts[item.status] = (counts[item.status] || 0) + 1;
+      if (item.status !== '○' && item.severity) {
+        sevCounts[item.severity] = (sevCounts[item.severity] || 0) + 1;
+        totalCost += SEVERITY_COST[item.severity] || 0;
+      }
+    });
+  });
+
+  const total = counts['○'] + counts['△'] + counts['×'];
+
+  el.innerHTML = `
+    <div class="grid grid-cols-3 gap-3">
+      <div class="text-center bg-green-50 rounded-lg p-3">
+        <div class="text-2xl font-bold text-green-600">${counts['○'] /* xss-ok: 整数カウント */}</div>
+        <div class="text-xs text-green-700 mt-1">○ 良好</div>
+      </div>
+      <div class="text-center bg-yellow-50 rounded-lg p-3">
+        <div class="text-2xl font-bold text-yellow-600">${counts['△'] /* xss-ok: 整数カウント */}</div>
+        <div class="text-xs text-yellow-700 mt-1">△ 要注意</div>
+      </div>
+      <div class="text-center bg-red-50 rounded-lg p-3">
+        <div class="text-2xl font-bold text-red-600">${counts['×'] /* xss-ok: 整数カウント */}</div>
+        <div class="text-xs text-red-700 mt-1">× 要修繕</div>
+      </div>
+    </div>
+    ${(counts['△'] + counts['×']) > 0 ? `
+    <div class="border border-orange-200 rounded-lg p-4 bg-orange-50">
+      <h3 class="text-sm font-bold text-orange-800 mb-2">欠陥重度別 修繕費概算</h3>
+      <div class="space-y-1">
+        <div class="flex justify-between text-sm"><span class="text-blue-700">軽微 (${sevCounts['軽微'] /* xss-ok: 整数カウント */}件 × 約5万円)</span><span class="font-medium">${(sevCounts['軽微'] * 50000).toLocaleString() /* xss-ok: 整数の算術結果 */}円</span></div>
+        <div class="flex justify-between text-sm"><span class="text-orange-700">中程度 (${sevCounts['中程度'] /* xss-ok: 整数カウント */}件 × 約30万円)</span><span class="font-medium">${(sevCounts['中程度'] * 300000).toLocaleString() /* xss-ok: 整数の算術結果 */}円</span></div>
+        <div class="flex justify-between text-sm"><span class="text-red-700">重大 (${sevCounts['重大'] /* xss-ok: 整数カウント */}件 × 約100万円)</span><span class="font-medium">${(sevCounts['重大'] * 1000000).toLocaleString() /* xss-ok: 整数の算術結果 */}円</span></div>
+        <div class="flex justify-between text-sm font-bold border-t border-orange-300 pt-2 mt-2"><span>合計概算</span><span class="text-orange-800">約 ${totalCost.toLocaleString() /* xss-ok: 整数の算術結果 */}円</span></div>
+      </div>
+      <p class="text-xs text-gray-500 mt-2">※ 概算金額は目安です。実際の修繕費は業者見積もりをご確認ください。</p>
+    </div>` : '<p class="text-sm text-gray-400 text-center py-2">問題箇所はありません。</p>'}
+    <div class="text-xs text-gray-400 text-right">確認済み: ${total /* xss-ok: 整数カウント */}/25項目</div>
+  `;
+}
+
+// Init
+load();
+renderSections();
+renderSummary();
+
+// Bind top fields
+['propertyAddr','inspectionDate'].forEach(id => {
+  const el = document.getElementById(id);
+  el.value = state[id] || '';
+  el.addEventListener('input', () => { state[id] = el.value; save(); });
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  if (!confirm('チェックリストをリセットしますか？')) return;
+  state = defaultState();
+  save();
+  document.getElementById('propertyAddr').value = '';
+  document.getElementById('inspectionDate').value = '';
+  renderSections(); renderSummary();
+});
+</script>
+</body>
+</html>
